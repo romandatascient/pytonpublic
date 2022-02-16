@@ -1,0 +1,261 @@
+# name:    compareExcel.pl
+# autor:   Roman Ch¹dzyñski
+# maile:   roman@chadzynski.biz
+# version: 30
+# lang:    python 3.7
+# licese:  MIT
+# date:    16.02.2022
+# desc:    scrypt to commpare two excel files, results in html and excel file 
+
+
+# SEKCJA BIBLIOTEK 
+
+import pandas as pd
+import numpy as np
+import datetime
+import shutil
+import os.path
+import sys
+
+
+# SEKCJA KONFIGURACJI
+
+# plik wejsciowy pierwszy (old) do porównania
+in_one_folder = r'C:\Users\Rzutnik\Desktop\compare_excel'
+in_one_file = 'old.xlsx'
+
+# plik wejsciowy drugi (new) do porównania
+in_two_folder = r'C:\Users\Rzutnik\Desktop\compare_excel'
+in_two_file = 'new.xlsx'
+
+# katalogi z plikami wejsciowe i wysciowe 
+out_folder = r'C:\Users\Rzutnik\Desktop\compare_excel\wyniki'
+# np pliki css i jpg
+in_folder = r'C:\Users\Rzutnik\Desktop\compare_excel'
+
+# constant
+
+# SEKCJA FUNKCJI
+
+# function to copp css and grafic file 
+def f_copy_file(in_folder, out_folder, file_name):
+    try:
+        shutil.copy(os.path.join(in_folder, file_name), out_folder)
+    except:
+         pass
+
+# function create the directory
+def f_make_directory (directory):
+   
+    try:
+        os.makedirs(directory, exist_ok = True)
+    except OSError as error:
+        print("Directory '%s' can not be created" % directory)
+
+ # function create the directory
+def f_zip_directory (directory_out, directory_to_archive, archive_name): 
+    try:
+       shutil.make_archive(os.path.join(directory_out , archive_name), 'zip',  directory_to_archive)
+    except OSError as error:
+        print("Directory '%s' can not be ziped" % directory_to_archive)
+
+# function genrate letter reprezentation for column name as excell
+def f_letter_column_name(i_column):
+    # definition of alfabet (typical for excel)
+    alfabet_how_many_letter = (91-65)
+    alfabet = list(map(chr, range(65, 91)))
+    
+    # algoritm generate letter reprezentation, (starting from end of name)
+    letter_columns = ''
+    while i_column > 0: 
+        # for rest of divaiding adding leter from alfabet list 
+        if i_column%alfabet_how_many_letter==0: 
+            # for 0 adding lats letter
+            letter_columns = str(letter_columns) + alfabet[alfabet_how_many_letter-1] 
+        else:
+            # for other add leter from alfabet list
+            letter_columns = str(letter_columns) + alfabet[int(np.floor(i_column%alfabet_how_many_letter))-1]  
+        
+        # calculate value for next iteration 
+        i_column = np.floor(i_column/alfabet_how_many_letter) - (1 if i_column%alfabet_how_many_letter==0 else 0)
+    
+    # revers string to order from beginig of column name 
+    return letter_columns[::-1] 
+
+# tworzy wspolny zbiór skoroszytów
+def f_create_intersection_sheet(df1,df2):
+    intersection = df1.keys() & df2.keys()
+    return intersection
+
+#tworzy zbiór skoroszytów dla których niema odpowienidka w pliku 2
+def f_create_difference_sheet(df1,df2):
+    difference = df1.keys() ^ f_create_intersection_sheet(df1,df2)
+    return difference
+
+def f_create_df_with_rownum_columnname_exceltype(df):
+    # create dataset to move columns name to secend row and add name of columns as EXCEL 
+    data01 = np.random.randint(1,2,size=(2, len(df.columns)))
+        
+    # add numeric name for columns in new df
+    df1_new = pd.DataFrame(data01, columns=pd.Series(np.arange(1,1+len(df.columns)))).astype(str)
+    # add firest row with columns as EXCEL  (A,B,C ...)
+    df1_new.loc[0] = list(map(f_letter_column_name, pd.Series(np.arange(1,1+len(df.columns)))))
+    # add secound row with nem of column from excel 
+    df1_new.loc[1] = df.columns 
+     
+    # change column name to numercic in old df
+    df.columns = pd.Series(np.arange(1,1+len(df.columns)))
+       
+    # concat df with new column name with old df
+    df1_new = pd.concat([df1_new, df], ignore_index=True)
+       
+    # add column with row number
+    df1_new.insert(loc=0, column='', value=pd.Series(np.arange(0,len(df1_new))))
+        
+    return df1_new
+
+# zapisuje wyniki
+def f_save_data_set_as_file(df, out_folder, typ_file, name_file, typ_export='pd', title = 'compare RCH', file_css = 'excel-2007.css'):
+    # export to html;
+    if typ_file == '.html':
+        if typ_export == 'own':
+         
+            # fail with pattern i fail from config
+            html_string = '''
+            <html>
+            <head><title>{title}</title></head>
+            <link rel="stylesheet" type="text/css" href="{file_css}"/>
+            <body>
+            {table}
+            </body>
+            </html>.
+            '''
+            # excelclass from configurator
+            with open(os.path.join(out_folder, name_file +'.html'), 'w') as f:
+                f.write(html_string.format(table=df.to_html(classes='excelTable', index=False, header=True, escape=False),title = title, file_css = file_css))
+        else:
+            # export by pandas function
+            df.to_html(os.path.join(out_folder, name_file +'.html'), index=False, header=True, escape=False)
+            
+    # export to excel    
+    elif typ_file == '.xlsx':
+        # export by pandas function, only
+        df.to_excel(os.path.join(out_folder, name_file +'.xlsx'), index=False, header=True)
+        
+# funkcja g³owna, wykonuje porownanie i zapisuje wyniki
+def f_compare_df_main(df1,df2,path_directory_out):
+    
+    # wspolne arkusze co do nazwy
+    intersection =  f_create_intersection_sheet(df1,df2)
+
+    # init frame z ró¿nicami
+    data_diff = []
+    # init frame summary
+    data_summary = []
+
+    # przejscie przez wszytkie wspolne arkusze 
+    for excel_sheet in intersection:
+        
+        # add stracture if excel (column name and row number)
+        df1_new = f_create_df_with_rownum_columnname_exceltype(df1[excel_sheet])
+        df2_new = f_create_df_with_rownum_columnname_exceltype(df2[excel_sheet])
+        
+        # zamiana pustych na stringi
+        df1_new = df1_new.fillna('NaN_XLSX')
+        df2_new = df2_new.fillna('NaN_XLSX')
+        
+    
+        # commper data 
+        if df1_new.equals(df2_new):
+            data_summary.append([excel_sheet, 1, 'zgodne', 0, 10])
+        else:
+
+            # zrób porównanie wartosci  
+            comparison_values = (df1_new.values == df2_new.values)
+            
+            # wybierz te niezgodne
+            try:
+                rows,cols=np.where(comparison_values==False)
+            
+                # przeiteruj po niezgodnych 
+                how_many_diff = 0
+                for item in zip(rows,cols):
+                    # ile róznic
+                    how_many_diff = how_many_diff + 1
+                    # tworznie dataframe tylko z róznicami 
+                    data_diff.append([excel_sheet,f_letter_column_name(item[1]+1) , str(item[0]+2), df1_new.iloc[item[0], item[1]], df2_new.iloc[item[0], item[1]], '<a href="szczegoly/' + excel_sheet + '_diff.html#R'+ str(item[0]) +'_C'+ str(item[1]) +'" target="_blank">'+ excel_sheet + '</a>' ])
+ 
+                    # zmienianie wewn¹trz komórek rozcniacych sie w orginalnyej ramce
+                    df1_new.iloc[item[0], item[1]] = '<div class="diff_value"><a id="R'+ str(item[0]) +'_C'+ str(item[1])+'">old: ({}) --> new: ({})</a></div>'.format(df1_new.iloc[item[0], item[1]],df2_new.iloc[item[0], item[1]])
+                   
+                    # znakwanie nag³owków z iloscia ró¿aniec w³acz wy³acz
+                    if str(df1_new.iloc[item[0],0]).find('D') > 0 :
+                        df1_new.iloc[item[0],0] =  str(df1_new.iloc[item[0],0]).split("D")[0]  + 'D' + str(int(str(df1_new.iloc[item[0],0]).split("D")[1].replace("</div>", ""))+1) + "</div>"
+                    else:
+                        df1_new.iloc[item[0],0] =  '<div class="diff_value">' + str(df1_new.iloc[item[0],0]) + '_D1' + "</div>"
+
+                
+                # w zrodle usun stringi oznaczajace null (odwrocenie)
+                df1_new = df1_new.replace('NaN_XLSX', '')
+      
+                # OUTPUT AN HTML FILE
+                f_save_data_set_as_file(df1_new, os.path.join(path_directory_out , 'szczegoly'), '.html', excel_sheet + '_diff' , 'own', excel_sheet )
+                
+                # dodaj info do sumarry
+                data_summary.append([excel_sheet, 0 ,'roznica w danych', how_many_diff, 1])
+                #print ("niezgodnosc dla arkusza " + excel_sheet + " razem :" + str(how_many_diff))
+            except:
+                # dodaj info do sumarry
+                data_summary.append([excel_sheet, 0 ,'roznica w strukturze', 0, 2])
+                #print ("niezgodnosc co do ilosci wierszy z danymi dla arkusza: " + excel_sheet, 2)
+                pass
+
+    # arkusze nie majace odpowiedniaków 
+    for excel_sheet in f_create_difference_sheet(df1,df2):
+        data_summary.append([excel_sheet, 0 ,'bark arkusza w old', 0, 3])
+    for excel_sheet in f_create_difference_sheet(df2,df1):
+        data_summary.append([excel_sheet, 0 ,'bark arkusza w new', 0, 4])
+
+    # roznice datafram 
+    df_diff = pd.DataFrame(data_diff, columns=['sheet', 'col', 'row' ,'val_prev', 'val_new',  'link'])
+    df_diff = df_diff.sort_values(by=['sheet', 'row', 'col'])
+
+    # podsumowanie datafreame
+    df_summary = pd.DataFrame(data_summary, columns=['sheet', 'equel', 'descryption','how_many_diff', 'typ'])
+    df_summary = df_summary.sort_values(by=['typ', 'sheet'])
+
+    # kolumna ró¿nica
+    df_diff['val_differance'] = pd.to_numeric(df_diff.val_prev, errors ='coerce').fillna(0).astype('float') - pd.to_numeric(df_diff.val_new, errors ='coerce').fillna(0).astype('float')
+    df_diff = pd.DataFrame(df_diff, columns=['sheet', 'col', 'row' ,'val_prev', 'val_new', 'val_differance', 'link'])
+
+    # roznice do excel
+    f_save_data_set_as_file(df_diff.iloc[:,:6], path_directory_out, '.xlsx', 'roznice_diff' )
+    f_save_data_set_as_file(df_summary.iloc[:,:4], path_directory_out, '.xlsx', 'summary_diff' )
+
+    # roznice do html
+    f_save_data_set_as_file(f_create_df_with_rownum_columnname_exceltype(df_diff), path_directory_out, '.html', 'roznice_diff', 'own', 'roznice', 'szczegoly/excel-2007.css')
+    f_save_data_set_as_file(f_create_df_with_rownum_columnname_exceltype(df_summary.iloc[:,:4]), path_directory_out, '.html', 'summary', 'own', 'summary', 'szczegoly/excel-2007.css')    
+
+
+
+# SEKCJA MAIN
+
+# tworzy strukture wyników
+name_directory_out = os.path.splitext(in_one_file)[0] +  '_{:%m%d%y%I%M%S%p}'.format(datetime.datetime.today())
+path_directory_out = os.path.join(out_folder, name_directory_out)
+f_make_directory (os.path.join(path_directory_out , 'szczegoly'))    
+
+#excele odczyt i ³adwowanie do ramek 
+df1=pd.read_excel(os.path.join( in_one_folder, in_one_file), sheet_name = None)
+df2=pd.read_excel(os.path.join( in_two_folder, in_two_file), sheet_name = None)  
+
+# porównanie exceli 
+f_compare_df_main(df1,df2,path_directory_out)
+
+# przegruywanie plików pomocniczych css, jpg
+f_copy_file(in_folder, os.path.join(path_directory_out , 'szczegoly'), 'excel-2007.css')
+f_copy_file(in_folder, os.path.join(path_directory_out , 'szczegoly'), 'excel-2007-header-bg.gif')
+f_copy_file(in_folder, os.path.join(path_directory_out , 'szczegoly'), 'excel-2007-header-left.gif')
+
+# pakownie wyników do udstepnienia
+f_zip_directory(out_folder , os.path.join(out_folder , name_directory_out),  name_directory_out)
